@@ -159,7 +159,60 @@ def save_fig(fig, path: str):
     fig.tight_layout()
     fig.savefig(path, dpi=200)
     plt.close(fig)
+# -----------------------------
+# AI Waste Helper Plots
+# -----------------------------
+def plot_pareto_cause(cause_summary: pd.DataFrame, title="Pareto: Waste by Cause"):
+    cs = cause_summary.copy()
+    cs = cs[cs["waste_kWh"] > 0].reset_index(drop=True)
+    if cs.empty:
+        return None
 
+    cs["cum_kWh"] = cs["waste_kWh"].cumsum()
+    total = cs["waste_kWh"].sum()
+    cs["cum_pct"] = (cs["cum_kWh"] / total) * 100.0 if total > 0 else 0.0
+
+    fig, ax1 = plt.subplots(figsize=(12, 5))
+    x = np.arange(len(cs))
+    ax1.bar(x, cs["waste_kWh"].values, edgecolor="white")
+    ax1.set_ylabel("Waste (kWh)")
+    ax1.set_xticks(x)
+    ax1.set_xticklabels(cs["AI_cause"].astype(str).values, rotation=30, ha="right")
+
+    ax2 = ax1.twinx()
+    ax2.plot(x, cs["cum_pct"].values, marker="D", linewidth=2)
+    ax2.set_ylabel("Cumulative %")
+    ax2.set_ylim(0, 105)
+
+    ax1.set_title(title, fontweight="bold")
+    plt.tight_layout()
+    return fig
+
+
+def plot_daily_waste(df_out: pd.DataFrame, dt_col: str):
+    tmp = df_out.copy()
+    tmp[dt_col] = pd.to_datetime(tmp[dt_col], errors="coerce")
+    tmp = tmp.dropna(subset=[dt_col])
+
+    tmp["date"] = tmp[dt_col].dt.date
+    daily = (tmp.groupby("date")
+             .agg(waste_kWh=("AI_waste_kWh", "sum"),
+                  cost_SGD=("AI_waste_cost_SGD", "sum"))
+             .reset_index())
+
+    fig1, ax = plt.subplots(figsize=(12, 4))
+    ax.bar(daily["date"].astype(str), daily["waste_kWh"].values)
+    ax.set_title("Daily Waste (kWh/day)", fontweight="bold")
+    plt.xticks(rotation=45)
+    plt.tight_layout()
+
+    fig2, ax = plt.subplots(figsize=(12, 4))
+    ax.bar(daily["date"].astype(str), daily["cost_SGD"].values)
+    ax.set_title("Daily Waste Cost (SGD/day)", fontweight="bold")
+    plt.xticks(rotation=45)
+    plt.tight_layout()
+
+    return daily, fig1, fig2
 
 # -----------------------------
 # Upload
@@ -241,7 +294,7 @@ with c3:
 sampling_min = st.number_input("Sampling interval (minutes) for occurrence/mins (default 5)", 1, 60, 5)
 enable_ai = st.toggle("Enable AI anomaly detection", value=True)
 
-run = st.button("Run full analysis (tables + 21 plots + AI)", type="primary")
+run = st.button("Run full analysis (tables + plots + AI)", type="primary")
 if not run:
     st.stop()
 
@@ -644,7 +697,7 @@ with tab3:
 # AI
 # -----------------------------
 with tab4:
-    st.subheader("AI Anomaly Detection (IsolationForest + baseline + cause + severity)")
+    st.subheader("AI Anomaly Detection")
 
     if not enable_ai:
         st.info("AI is disabled.")
@@ -768,126 +821,176 @@ with tab4:
         st.pyplot(scatter_flagged(ai["CHW load (RT)"], ai["CT_kWRT"], flag, "CT kW/RT vs Load (AI flagged)", "CT kW/RT"))
         st.pyplot(scatter_flagged(ai["CHW load (RT)"], ai["Plant_kWRT"], flag, "Plant kW/RT vs Load (AI flagged)", "Plant kW/RT"))
 
+# ==========================================================
+# ENERGY WASTE ESTIMATION
+# ==========================================================
 st.divider()
-st.subheader("💸 Energy Waste Estimation (Avoidable kWh & Cost)")
+st.subheader("💸 Energy Waste Estimation")
 
-# User inputs
-TARIFF_SGD_PER_KWH = st.number_input("Tariff (SGD/kWh)", min_value=0.0, value=0.25, step=0.01)
-INTERVAL_MIN = st.number_input("Data interval (minutes)", min_value=1, max_value=60, value=int(sampling_min), step=1)
+TARIFF = st.number_input("Tariff (SGD/kWh)", value=0.25)
+MIN_RT = st.number_input("Minimum RT to count waste", value=200.0)
 
-# Optional: ignore tiny loads (recommended to avoid staging noise exaggeration)
-MIN_RT_FOR_WASTE = st.number_input("Minimum load (RT) to count waste", min_value=0.0, value=200.0, step=10.0)
+df_out = ai.copy()
 
-dt_hours = float(INTERVAL_MIN) / 60.0
+df_out["AI_flag_any"] = ((df_out["AI_iforest_flag"] == 1) | 
+                         (df_out["AI_baseline_flag"] == 1)).astype(int)
 
-# Ensure required columns exist
-required = ["CHW load (RT)", "Plant_kWRT", "AI_expected_Plant_kWRT", "AI_iforest_flag", "AI_baseline_flag"]
-missing = [c for c in required if c not in ai.columns]
-if missing:
-    st.error(f"Missing columns for waste calc: {missing}")
-else:
-    df_out = ai.copy()
+df_out["AI_actual_kW"] = df_out["Plant_kWRT"] * df_out["CHW load (RT)"]
+df_out["AI_expected_kW"] = df_out["AI_expected_Plant_kWRT"] * df_out["CHW load (RT)"]
 
-    # Use any flag
-    df_out["AI_flag_any"] = ((df_out["AI_iforest_flag"] == 1) | (df_out["AI_baseline_flag"] == 1)).astype(int)
+df_out["AI_waste_kW"] = (df_out["AI_actual_kW"] - df_out["AI_expected_kW"]).clip(lower=0)
 
-    # Numeric safety
-    for c in ["CHW load (RT)", "Plant_kWRT", "AI_expected_Plant_kWRT"]:
-        df_out[c] = pd.to_numeric(df_out[c], errors="coerce")
+# ignore tiny loads
+df_out.loc[df_out["CHW load (RT)"] < MIN_RT, "AI_waste_kW"] = 0
+df_out.loc[df_out["AI_flag_any"] != 1, "AI_waste_kW"] = 0
 
-    # Optional filter: avoid tiny load inflation
-    df_out["_rt_ok"] = df_out["CHW load (RT)"] >= float(MIN_RT_FOR_WASTE)
+dt_hours = float(sampling_min) / 60.0
 
-    # Actual vs expected plant power
-    df_out["AI_actual_kW"] = df_out["Plant_kWRT"] * df_out["CHW load (RT)"]
-    df_out["AI_expected_kW"] = df_out["AI_expected_Plant_kWRT"] * df_out["CHW load (RT)"]
+df_out["AI_waste_kWh"] = df_out["AI_waste_kW"] * dt_hours
+df_out["AI_waste_cost_SGD"] = df_out["AI_waste_kWh"] * TARIFF
 
-    # Waste kW: only count if worse than expected, flagged, and above min RT
-    df_out["AI_waste_kW"] = (df_out["AI_actual_kW"] - df_out["AI_expected_kW"]).clip(lower=0)
-    df_out.loc[~df_out["_rt_ok"], "AI_waste_kW"] = 0
-    df_out.loc[df_out["AI_flag_any"] != 1, "AI_waste_kW"] = 0
+total_kwh = df_out["AI_waste_kWh"].sum()
+total_cost = df_out["AI_waste_cost_SGD"].sum()
 
-    # Waste energy and cost
-    df_out["AI_waste_kWh"] = df_out["AI_waste_kW"] * dt_hours
-    df_out["AI_waste_cost_SGD"] = df_out["AI_waste_kWh"] * float(TARIFF_SGD_PER_KWH)
+c1, c2 = st.columns(2)
+c1.metric("Avoidable Waste (kWh)", f"{total_kwh:,.1f}")
+c2.metric("Avoidable Cost (SGD)", f"{total_cost:,.2f}")
 
-    # Summary metrics
-    total_kwh = float(df_out["AI_waste_kWh"].sum())
-    total_cost = float(df_out["AI_waste_cost_SGD"].sum())
-    n_flag = int(df_out["AI_flag_any"].sum())
+# Top events
+top_events = df_out[df_out["AI_waste_kWh"] > 0] \
+                .sort_values("AI_waste_kWh", ascending=False) \
+                .head(20)
 
-    c1, c2, c3 = st.columns(3)
-    c1.metric("Flagged points", f"{n_flag:,}")
-    c2.metric("Estimated avoidable waste (kWh)", f"{total_kwh:,.1f}")
-    c3.metric("Estimated avoidable cost (SGD)", f"{total_cost:,.2f}")
+st.dataframe(top_events[[dt_col,
+                         "CHW load (RT)",
+                         "AI_waste_kWh",
+                         "AI_waste_cost_SGD",
+                         "AI_cause"]])
 
-    # Top events table
-    st.caption("Top 20 avoidable-waste events (flagged points only)")
-    top_events = (df_out[df_out["AI_waste_kWh"] > 0]
-                  .sort_values("AI_waste_kWh", ascending=False)
-                  .head(20))
+# Cause summary
+cause_summary = df_out[df_out["AI_waste_kWh"] > 0] \
+    .groupby("AI_cause") \
+    .agg(events=("AI_waste_kWh", "size"),
+         waste_kWh=("AI_waste_kWh", "sum"),
+         cost_SGD=("AI_waste_cost_SGD", "sum")) \
+    .sort_values("waste_kWh", ascending=False) \
+    .reset_index()
 
-    show_cols = [
-        dt_col, "CHW load (RT)",
-        "Plant_kWRT", "AI_expected_Plant_kWRT", "AI_residual_Plant_kWRT",
-        "AI_actual_kW", "AI_expected_kW", "AI_waste_kW", "AI_waste_kWh", "AI_waste_cost_SGD",
-        "AI_cause", "severity"
-    ]
-    show_cols = [c for c in show_cols if c in top_events.columns]
-    st.dataframe(top_events[show_cols], use_container_width=True)
+st.subheader("Pareto by Cause")
+st.dataframe(cause_summary)
 
-    # Summary by cause
-    st.caption("Waste summary by cause (flagged points only)")
-    if "AI_cause" in df_out.columns:
-        cause_summary = (df_out[df_out["AI_waste_kWh"] > 0]
-                         .groupby("AI_cause", dropna=False)
-                         .agg(events=("AI_waste_kWh", "size"),
-                              waste_kWh=("AI_waste_kWh", "sum"),
-                              cost_SGD=("AI_waste_cost_SGD", "sum"),
-                              avg_waste_kWh=("AI_waste_kWh", "mean"))
-                         .sort_values("waste_kWh", ascending=False)
-                         .reset_index())
-        st.dataframe(cause_summary, use_container_width=True)
+pareto_fig = plot_pareto_cause(cause_summary)
+if pareto_fig:
+    st.pyplot(pareto_fig)
 
-    # Download enriched AI dataframe
-    st.download_button(
-        "Download AI + waste columns CSV",
-        data=df_out.to_csv(index=False).encode("utf-8"),
-        file_name="AI_with_waste.csv",
-        mime="text/csv"
-    )
+# Daily trend
+daily_tbl, daily_fig1, daily_fig2 = plot_daily_waste(df_out, dt_col)
+
+st.subheader("Daily Waste Trend")
+st.dataframe(daily_tbl)
+st.pyplot(daily_fig1)
+st.pyplot(daily_fig2)
+
+# store for ZIP
+st.session_state["df_out"] = df_out
+st.session_state["top_events"] = top_events
+st.session_state["cause_summary"] = cause_summary
+st.session_state["daily_tbl"] = daily_tbl
+st.session_state["pareto_fig"] = pareto_fig
+st.session_state["daily_fig1"] = daily_fig1
+st.session_state["daily_fig2"] = daily_fig2
+
+# Download enriched AI dataframe
+st.download_button(
+    "Download AI + waste columns CSV",
+    data=df_out.to_csv(index=False).encode("utf-8"),
+    file_name="AI_with_waste.csv",
+    mime="text/csv",
+)
+    
 # -----------------------------
 # Downloads
 # -----------------------------
 st.divider()
 st.subheader("Downloads")
 
+# 1) df_calc download
 st.download_button(
     "Download df_calc (processed CSV)",
     data=df_calc.to_csv(index=False).encode("utf-8"),
     file_name=f"df_calc_{datetime.now().strftime('%Y%m%d_%H%M')}.csv",
-    mime="text/csv",
+    mime="text/csv"
 )
 
+# 2) ZIP report (plots + key tables + AI waste outputs)
 with tempfile.TemporaryDirectory() as tmpdir:
     outdir = os.path.join(tmpdir, "bms_report")
     os.makedirs(outdir, exist_ok=True)
 
+    # --- Save key tables ---
     df_calc.head(5000).to_csv(os.path.join(outdir, "df_calc_head.csv"), index=False)
 
+    # --- Build plots FIRST (so figs exists) ---
     figs = []
-    figs.append(plot_hourly_line(hourly_mean(df_m, dt_col, "CHW load (RT)"),
-                                 f"{sel_month}: Typical 24-Hour Cooling Load Profile", "RT"))
-    figs.append(plot_hourly_line(hourly_mean(df_calc, dt_col, "Overall efficiency (kW/RT)"),
-                                 "Plant Efficiency vs time (Daily Profile)", "kW/RT"))
-    figs.append(scatter_plot(df_calc["CHW load (RT)"], df_calc["Overall efficiency (kW/RT)"],
-                             "Plant Efficiency vs Load", ylabel="kW/RT"))
+    figs.append(
+        plot_hourly_line(
+            hourly_mean(df_m, dt_col, "CHW load (RT)"),
+            f"{sel_month}: Typical 24-Hour Cooling Load Profile",
+            "RT",
+        )
+    )
+    figs.append(
+        plot_hourly_line(
+            hourly_mean(df_calc, dt_col, "Overall efficiency (kW/RT)"),
+            "Plant Efficiency vs time (Daily Profile)",
+            "kW/RT",
+        )
+    )
+    figs.append(
+        scatter_plot(
+            df_calc["CHW load (RT)"],
+            df_calc["Overall efficiency (kW/RT)"],
+            "Plant Efficiency vs Load",
+            ylabel="kW/RT",
+        )
+    )
 
+    # --- Save plots ---
     for i, fig in enumerate(figs, start=1):
         save_fig(fig, os.path.join(outdir, f"plot_{i:02d}.png"))
 
+    # --- Save AI waste outputs into ZIP (only if they exist in session_state) ---
+    df_out_ss = st.session_state.get("df_out", None)
+    if isinstance(df_out_ss, pd.DataFrame) and len(df_out_ss) > 0:
+        df_out_ss.to_csv(os.path.join(outdir, "AI_with_waste.csv"), index=False)
+
+        top_events_ss = st.session_state.get("top_events", None)
+        if isinstance(top_events_ss, pd.DataFrame) and len(top_events_ss) > 0:
+            top_events_ss.to_csv(os.path.join(outdir, "AI_top_events.csv"), index=False)
+
+        cause_summary_ss = st.session_state.get("cause_summary", None)
+        if isinstance(cause_summary_ss, pd.DataFrame) and len(cause_summary_ss) > 0:
+            cause_summary_ss.to_csv(os.path.join(outdir, "AI_cause_summary.csv"), index=False)
+
+        daily_tbl_ss = st.session_state.get("daily_tbl", None)
+        if isinstance(daily_tbl_ss, pd.DataFrame) and len(daily_tbl_ss) > 0:
+            daily_tbl_ss.to_csv(os.path.join(outdir, "AI_daily_waste.csv"), index=False)
+
+        pareto_fig_ss = st.session_state.get("pareto_fig", None)
+        if pareto_fig_ss is not None:
+            save_fig(pareto_fig_ss, os.path.join(outdir, "AI_pareto.png"))
+
+        daily_fig1_ss = st.session_state.get("daily_fig1", None)
+        if daily_fig1_ss is not None:
+            save_fig(daily_fig1_ss, os.path.join(outdir, "AI_daily_kWh.png"))
+
+        daily_fig2_ss = st.session_state.get("daily_fig2", None)
+        if daily_fig2_ss is not None:
+            save_fig(daily_fig2_ss, os.path.join(outdir, "AI_daily_cost.png"))
+
+    # --- ZIP download button MUST be last, still inside tempdir ---
     st.download_button(
-        "Download report ZIP (tables + key plots)",
+        "Download report ZIP (tables + key plots + AI waste outputs)",
         data=zip_folder(outdir),
         file_name=f"bms_report_{datetime.now().strftime('%Y%m%d_%H%M')}.zip",
         mime="application/zip",
