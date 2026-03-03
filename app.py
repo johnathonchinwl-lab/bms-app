@@ -292,9 +292,9 @@ with c3:
     rh_col = pick("RH % (for AI)", "rh", required=False)
 
 sampling_min = st.number_input("Sampling interval (minutes) for occurrence/mins (default 5)", 1, 60, 5)
-enable_ai = st.toggle("Enable AI anomaly detection", value=True)
+enable_ai = st.toggle("Enable Anomaly Detection", value=True)
 
-run = st.button("Run full analysis (tables + plots + AI)", type="primary")
+run = st.button("Run full analysis", type="primary")
 if not run:
     st.stop()
 
@@ -407,7 +407,7 @@ df_m = df_calc[df_calc[dt_col].dt.month == sel_month].copy()
 # Tabs
 # -----------------------------
 st.divider()
-tab1, tab2, tab3, tab4 = st.tabs(["✅ Tables", "Graphs", "Graphs(extd)", "AI anomoly & detection"])
+tab1, tab2, tab3, tab4 = st.tabs(["✅ Tables", "Graphs", "Graphs(extd)", "Anomoly & Detection"])
 
 
 # -----------------------------
@@ -995,3 +995,4 @@ with tempfile.TemporaryDirectory() as tmpdir:
         file_name=f"bms_report_{datetime.now().strftime('%Y%m%d_%H%M')}.zip",
         mime="application/zip",
     )
+
