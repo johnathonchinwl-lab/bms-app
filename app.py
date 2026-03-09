@@ -114,14 +114,6 @@ def plot_hourly_overlay(df24_2col, title, ylabel, l1, l2):
 
 from matplotlib.ticker import PercentFormatter
 
-fig = plot_heat_balance_scatter_24h(
-    df_m,
-    dt_col,
-    hb_col="Heat balance (%)",
-    title="Heat Balance"
-)
-
-st.pyplot(fig)
 
 def plot_heat_balance_scatter_24h(df, dt_col, hb_col="Heat balance (%)", title="Heat Balance"):
     tmp = df[[dt_col, hb_col]].copy()
@@ -1058,6 +1050,7 @@ with tempfile.TemporaryDirectory() as tmpdir:
         file_name=f"bms_report_{datetime.now().strftime('%Y%m%d_%H%M')}.zip",
         mime="application/zip",
     )
+
 
 
 
