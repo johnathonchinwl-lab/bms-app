@@ -14,7 +14,7 @@ from sklearn.ensemble import IsolationForest, GradientBoostingRegressor
 # -----------------------------
 st.set_page_config(page_title="BMS Processor", layout="wide")
 st.title("BMS Processor (Upload in CSV)")
-st.caption("Auto-detect + fallback → tables + plots + AI anomaly detection + downloads")
+st.caption("Heat Balance, System Efficiencies, Cooling Load Occurances, Machine learning")
 
 
 # -----------------------------
@@ -995,5 +995,6 @@ with tempfile.TemporaryDirectory() as tmpdir:
         file_name=f"bms_report_{datetime.now().strftime('%Y%m%d_%H%M')}.zip",
         mime="application/zip",
     )
+
 
 
