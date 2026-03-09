@@ -111,6 +111,48 @@ def plot_hourly_overlay(df24_2col, title, ylabel, l1, l2):
     plt.tight_layout()
     return fig
 
+
+from matplotlib.ticker import PercentFormatter
+
+def plot_hourly_heat_balance(series24, title="Chiller Plant System Heat Balance Profile"):
+    fig = plt.figure(figsize=(14, 6))
+    plt.plot(range(24), series24.values, linewidth=2.0)
+
+    plt.title(title, fontweight="bold")
+    plt.xlabel("Time of Day")
+    plt.ylabel("Heat Balance (%)")
+    plt.xticks(range(24), AM_PM, rotation=45, ha="right")
+    plt.grid(True, linestyle="-", alpha=0.35)
+
+    ax = plt.gca()
+    ax.yaxis.set_major_formatter(PercentFormatter(xmax=100, decimals=2))
+    ax.set_ylim(-15, 15)
+    ax.set_yticks(np.arange(-15, 16, 1))
+
+    plt.tight_layout()
+    return fig
+
+    st.subheader("Heat Balance Profile")
+
+    hb_plot = df_m.copy()
+    hb_plot["Heat balance (%)"] = pd.to_numeric(hb_plot["Heat balance (%)"], errors="coerce")
+
+    # optional clipping to match your Excel-style visual range
+    hb_plot.loc[hb_plot["Heat balance (%)"] > 15, "Heat balance (%)"] = 15
+    hb_plot.loc[hb_plot["Heat balance (%)"] < -15, "Heat balance (%)"] = -15
+
+    hb_hourly = hourly_mean(hb_plot, dt_col, "Heat balance (%)")
+
+    fig = plot_hourly_heat_balance(
+        hb_hourly,
+        title="Chiller Plant System Heat Balance Profile"
+    )
+    st.pyplot(fig)
+
+
+
+
+
 def scatter_plot(x, y, title, xlabel="Cooling Load (RT)", ylabel="Efficiency (kW/RT)"):
     x = pd.to_numeric(x, errors="coerce")
     y = pd.to_numeric(y, errors="coerce")
@@ -995,6 +1037,7 @@ with tempfile.TemporaryDirectory() as tmpdir:
         file_name=f"bms_report_{datetime.now().strftime('%Y%m%d_%H%M')}.zip",
         mime="application/zip",
     )
+
 
 
 
