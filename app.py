@@ -697,16 +697,12 @@ with tab2:
     hb_plot = df_m.copy()
     hb_plot["Heat balance (%)"] = pd.to_numeric(hb_plot["Heat balance (%)"], errors="coerce")
 
-    # optional clipping to match your Excel-style chart view
-    hb_plot.loc[hb_plot["Heat balance (%)"] > 15, "Heat balance (%)"] = 15
-    hb_plot.loc[hb_plot["Heat balance (%)"] < -15, "Heat balance (%)"] = -15
+    hb_hourly = hourly_mean(hb_plot, dt_col, "Heat balance (%)")
 
-hb_hourly = hourly_mean(hb_plot, dt_col, "Heat balance (%)")
-
-fig = plot_hourly_heat_balance(
-    hb_hourly,
-    title="Chiller Plant System Heat Balance Profile"
-)
+    fig = plot_hourly_heat_balance(
+        hb_hourly,
+        title="Chiller Plant System Heat Balance Profile"
+    )
     st.pyplot(fig)
 # -----------------------------
 # Graphs (extd)
@@ -1039,6 +1035,7 @@ with tempfile.TemporaryDirectory() as tmpdir:
         file_name=f"bms_report_{datetime.now().strftime('%Y%m%d_%H%M')}.zip",
         mime="application/zip",
     )
+
 
 
 
