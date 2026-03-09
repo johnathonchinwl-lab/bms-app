@@ -712,11 +712,11 @@ with tab2:
     hb_plot = df_m.copy()
     hb_plot["Heat balance (%)"] = pd.to_numeric(hb_plot["Heat balance (%)"], errors="coerce")
 
-    hb_hourly = hourly_mean(hb_plot, dt_col, "Heat balance (%)")
-
-    fig = plot_hourly_heat_balance(
-        hb_hourly,
-        title="Chiller Plant System Heat Balance Profile"
+    fig = plot_heat_balance_scatter_24h(
+        hb_plot,
+        dt_col,
+        hb_col="Heat balance (%)",
+        title="Heat Balance"
     )
     st.pyplot(fig)
 # -----------------------------
@@ -1050,6 +1050,7 @@ with tempfile.TemporaryDirectory() as tmpdir:
         file_name=f"bms_report_{datetime.now().strftime('%Y%m%d_%H%M')}.zip",
         mime="application/zip",
     )
+
 
 
 
