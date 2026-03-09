@@ -132,7 +132,40 @@ def plot_hourly_heat_balance(series24, title="Chiller Plant System Heat Balance 
     plt.tight_layout()
     return fig
 
+def plot_heat_balance_scatter_24h(df, dt_col, hb_col="Heat balance (%)", title="Heat Balance"):
+    tmp = df[[dt_col, hb_col]].copy()
 
+    tmp[dt_col] = pd.to_datetime(tmp[dt_col], errors="coerce")
+    tmp[hb_col] = pd.to_numeric(tmp[hb_col], errors="coerce")
+
+    tmp = tmp.dropna().sort_values(dt_col)
+
+    # convert timestamp → decimal hour
+    tmp["hour_dec"] = (
+        tmp[dt_col].dt.hour
+        + tmp[dt_col].dt.minute / 60
+        + tmp[dt_col].dt.second / 3600
+    )
+
+    fig = plt.figure(figsize=(14, 6))
+
+    plt.scatter(tmp["hour_dec"], tmp[hb_col], s=35, alpha=0.8)
+
+    plt.title(title, fontweight="bold")
+    plt.xlabel("Time of Day")
+    plt.ylabel("Heat Balance (%)")
+
+    ticks = np.arange(0, 24, 1)
+    plt.xticks(ticks, AM_PM, rotation=45, ha="right")
+
+    plt.grid(True, linestyle="--", alpha=0.4)
+
+    plt.ylim(-20, 20)
+    plt.yticks(np.arange(-20, 21, 5))
+
+    plt.tight_layout()
+
+    return fig
 
 
 
@@ -1034,6 +1067,7 @@ with tempfile.TemporaryDirectory() as tmpdir:
         file_name=f"bms_report_{datetime.now().strftime('%Y%m%d_%H%M')}.zip",
         mime="application/zip",
     )
+
 
 
 
