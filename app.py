@@ -701,12 +701,12 @@ with tab2:
     hb_plot.loc[hb_plot["Heat balance (%)"] > 15, "Heat balance (%)"] = 15
     hb_plot.loc[hb_plot["Heat balance (%)"] < -15, "Heat balance (%)"] = -15
 
-    fig = plot_hourly_heat_balance(
-        hb_plot,
-        dt_col,
-        hb_col="Heat balance (%)",
-        title="Chiller Plant System Heat Balance Profile"
-    )
+hb_hourly = hourly_mean(hb_plot, dt_col, "Heat balance (%)")
+
+fig = plot_hourly_heat_balance(
+    hb_hourly,
+    title="Chiller Plant System Heat Balance Profile"
+)
     st.pyplot(fig)
 # -----------------------------
 # Graphs (extd)
@@ -1039,6 +1039,7 @@ with tempfile.TemporaryDirectory() as tmpdir:
         file_name=f"bms_report_{datetime.now().strftime('%Y%m%d_%H%M')}.zip",
         mime="application/zip",
     )
+
 
 
 
